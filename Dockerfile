@@ -1,37 +1,46 @@
-# ─── Stage 1: clone your fork ─────────────────────────────────────────────────
-FROM alpine/git AS prepare
-WORKDIR /app
-ARG GIT_REPO=https://github.com/jasonashworth001/filestash
-ARG GIT_BRANCH=master
-RUN git clone --depth 1 --branch ${GIT_BRANCH} ${GIT_REPO} .
-
-# ─── Stage 2: build Go backend ───────────────────────────────────────────────
+# ─── Builder: Go backend using vendored dependencies ─────────────────────────
 FROM golang:1.23-alpine AS builder_go
 WORKDIR /app
-# copy the entire source (including server/, static/, your plugin, go.mod, etc.)
-COPY --from=prepare /app . 
-# compile it (this picks up all the embedded static files)
-RUN CGO_ENABLED=0 go build -o filestash ./cmd/main.go
 
-# ─── Stage 3: build frontend ────────────────────────────────────────────────
+# 1) Copy go.mod, go.sum, and vendored dependencies
+COPY go.mod go.sum vendor/ ./
+
+# 2) Replace upstream module import paths to use local code
+RUN go mod edit -replace github.com/mickael-kerjean/filestash=./
+
+# 3) Copy the full source tree (including cmd/, server/, static/, your plugin, etc.)
+COPY . ./
+
+# 4) Build the static binary using vendored deps and local code
+RUN CGO_ENABLED=0 GOFLAGS="-mod=vendor" \
+    go build -o filestash ./cmd/main.go
+
+# ─── Builder: Frontend assets build ────────────────────────────────────────────
 FROM node:18-alpine AS builder_frontend
-WORKDIR /app/client
-# copy just frontend code
-COPY --from=prepare /app/client ./
-RUN npm install --legacy-peer-deps && npm run build
+WORKDIR /app
 
-# ─── Stage 4: assemble runtime ──────────────────────────────────────────────
+# Copy everything and install dependencies
+COPY . ./
+RUN npm install --legacy-peer-deps
+
+# Build the frontend (adjust if your build command differs)
+RUN npm run build
+
+# ─── Final runtime image ──────────────────────────────────────────────────────
 FROM alpine:3.17
+
+# Include CA certs for HTTPS support
 RUN apk add --no-cache ca-certificates
 WORKDIR /root/
 
-# bring in the compiled backend
+# Copy in the Go binary
 COPY --from=builder_go /app/filestash .
-# bring in the built frontend assets
-COPY --from=builder_frontend /app/client/dist public
 
-# expose your Filestash port
+# Copy in the built frontend assets
+COPY --from=builder_frontend /app/public ./public
+
+# Expose the default Filestash port
 EXPOSE 8334
 
-# run it!
-ENTRYPOINT ["./filestash"]
+# Launch Filestash
+ENTRYPOINT ["./filestash"] ["./filestash"]
