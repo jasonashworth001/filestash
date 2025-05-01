@@ -2,14 +2,16 @@
 FROM golang:1.23-alpine AS builder_go
 WORKDIR /app
 
-# Copy module files and vendored deps
+# 1) Copy module definition and vendored deps
 COPY go.mod go.sum ./
 COPY vendor/ ./vendor
 
-# Build static binary using vendor folder
+# 2) Copy source code (including cmd/, server/, etc.)
+COPY . ./
+
+# 3) Build static binary using vendor folder
 RUN CGO_ENABLED=0 GOFLAGS="-mod=vendor" \
     go build -o filestash ./cmd/main.go
-
 
 # ─── Builder: Frontend assets build ────────────────────────────────────────────
 FROM node:18-alpine AS builder_frontend
@@ -21,7 +23,6 @@ RUN npm install --legacy-peer-deps
 
 # Build the frontend (adjust if your build command differs)
 RUN npm run build
-
 
 # ─── Final runtime image ──────────────────────────────────────────────────────
 FROM alpine:3.17
