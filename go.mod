@@ -167,3 +167,6 @@ require (
 	storj.io/infectious v0.0.2 // indirect
 	storj.io/picobuf v0.0.3 // indirect
 )
+
+replace github.com/jasonashworth001/filestash => ./
+
