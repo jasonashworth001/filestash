@@ -1,4 +1,4 @@
-import { init as initConfig, getVersion } from "../model/config.js";
+import { init as initConfig, getVersion, get } from "../model/config.js";
 
 const DEBOUNCETIME = 100;
 
@@ -41,15 +41,8 @@ class FilestashTable extends HTMLElement {
 
     connectedCallback() {
         const src = this.getAttribute("src") || "";
-        const name = this.getAttribute("name") || "main.dbf";
-        const mime = {
-            "orc": "application/vnd.apache.orc",
-            "arrow": "application/vnd.apache.feather",
-            "avro": "application/vnd.apache.avro",
-            "feather": "application/vnd.apache.feather",
-            "parquet": "application/vnd.apache.parquet",
-            "dbf": "application/dbf",
-        }[name.split(".").pop().toLowerCase()];
+        const name = this.getAttribute("name") || "main.dat";
+        const mime = get("mime", {})[name.split(".").pop().toLowerCase()];
 
         this.style.display = "inline-block";
         this.iframe.srcdoc = `<!DOCTYPE html>
