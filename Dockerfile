@@ -1,45 +1,43 @@
-# ─── Builder: Go backend ───────────────────────────────────────────────────────
+# ─── Builder: Go backend using vendored dependencies ─────────────────────────
 FROM golang:1.23-alpine AS builder_go
-
 WORKDIR /app
-# pull in dependencies
+
+# Copy module files and vendored deps
 COPY go.mod go.sum ./
-RUN go mod download
+COPY vendor/ ./vendor
 
-# bring in entire source, including server/, cmd/, plugins/, etc.
-COPY . .
+# Build static binary using vendor folder
+RUN CGO_ENABLED=0 GOFLAGS="-mod=vendor" \
+    go build -o filestash ./cmd/main.go
 
-# compile your main.go (with plugin baked in)
-RUN go build -o filestash ./cmd/main.go
 
-# ─── Builder: Frontend ─────────────────────────────────────────────────────────
+# ─── Builder: Frontend assets build ────────────────────────────────────────────
 FROM node:18-alpine AS builder_frontend
+WORKDIR /app
 
-WORKDIR /app/client
-# adjust path if your frontend lives elsewhere
-COPY client/package*.json ./
+# Copy everything and install dependencies
+COPY . ./
 RUN npm install --legacy-peer-deps
 
-# copy remaining client code & build
-COPY client/ ./
+# Build the frontend (adjust if your build command differs)
 RUN npm run build
+
 
 # ─── Final runtime image ──────────────────────────────────────────────────────
 FROM alpine:3.17
 
-# for HTTPS certs
+# Include CA certs for HTTPS support
 RUN apk add --no-cache ca-certificates
-
 WORKDIR /root/
 
-# copy in the backend binary
+# Copy in the Go binary
 COPY --from=builder_go /app/filestash .
 
-# copy in the built frontend assets
-COPY --from=builder_frontend /app/client/dist ./public
+# Copy in the built frontend assets
+COPY --from=builder_frontend /app/public ./public
 
-# expose the default Filestash port
+# Expose the default Filestash port
 EXPOSE 8334
 
-# run Filestash
+# Launch Filestash
 ENTRYPOINT ["./filestash"]
