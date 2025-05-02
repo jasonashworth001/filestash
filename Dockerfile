@@ -1,46 +1,49 @@
-# ─── Builder: Go backend using vendored dependencies ─────────────────────────
+# ─── Builder: Go backend ─────────────────────────────────────────────────────
 FROM golang:1.23-alpine AS builder_go
 WORKDIR /app
 
-# 1) Copy go.mod, go.sum, and vendored dependencies
-COPY go.mod go.sum vendor/ ./
+# Install git (for modules) and ca-certificates for SSL
+RUN apk add --no-cache git ca-certificates
 
-# 2) Replace upstream module import paths to use local code
-RUN go mod edit -replace github.com/mickael-kerjean/filestash=./
+# Copy module files and download dependencies
+COPY go.mod go.sum ./
+RUN go mod download
 
-# 3) Copy the full source tree (including cmd/, server/, static/, your plugin, etc.)
+# Copy entire codebase (including server/ctrl/static)
 COPY . ./
 
-# 4) Build the static binary using vendored deps and local code
-RUN CGO_ENABLED=0 GOFLAGS="-mod=vendor" \
-    go build -o filestash ./cmd/main.go
+# Build static binary (embed will pick up static/www, static/404.html, etc.)
+RUN CGO_ENABLED=0 \
+    go build \
+    -ldflags "-s -w" \
+    -o filestash \
+    ./cmd/main.go
 
-# ─── Builder: Frontend assets build ────────────────────────────────────────────
+# ─── Builder: Frontend assets ─────────────────────────────────────────────────
 FROM node:18-alpine AS builder_frontend
 WORKDIR /app
+RUN apk add --no-cache git
+# Copy client code and build
+COPY client/ ./client/
+WORKDIR /app/client
+RUN npm install --legacy-peer-deps && npm run build
 
-# Copy everything and install dependencies
-COPY . ./
-RUN npm install --legacy-peer-deps
-
-# Build the frontend (adjust if your build command differs)
-RUN npm run build
-
-# ─── Final runtime image ──────────────────────────────────────────────────────
-FROM alpine:3.17
-
-# Include CA certs for HTTPS support
+# ─── Final: Minimal runtime ────────────────────────────────────────────────────
+FROM alpine:3.17 AS runtime
+# SSL support
 RUN apk add --no-cache ca-certificates
+
 WORKDIR /root/
+# Copy Go binary
+COPY --from=builder_go /app/filestash ./filestash
+# Copy builtin static files (404, loader) and www content
+COPY --from=builder_go /app/server/ctrl/static ./server/ctrl/static
+# Copy public frontend assets
+COPY --from=builder_frontend /app/client/public ./public
 
-# Copy in the Go binary
-COPY --from=builder_go /app/filestash .
-
-# Copy in the built frontend assets
-COPY --from=builder_frontend /app/public ./public
-
-# Expose the default Filestash port
+# Expose default port
 EXPOSE 8334
 
-# Launch Filestash
-ENTRYPOINT ["./filestash"] ["./filestash"]
+# Launch
+ENTRYPOINT ["./filestash"]
+CMD ["--config", "./config/config.json"]
