@@ -1,49 +1,40 @@
-# ─── Builder: Go backend ─────────────────────────────────────────────────────
-FROM golang:1.23-alpine AS builder_go
+# Stage 1: Clone full repo (with static assets)
+FROM alpine/git AS clone
+WORKDIR /src
+ARG GIT_REPO=https://github.com/jasonashworth001/filestash
+ARG GIT_BRANCH=master
+RUN git clone --depth 1 --branch ${GIT_BRANCH} ${GIT_REPO} .
+
+# Stage 2: Build
+FROM golang:1.23-alpine AS builder
 WORKDIR /app
 
-# Install git (for modules) and ca-certificates for SSL
-RUN apk add --no-cache git ca-certificates
+# Install deps
+RUN apk add --no-cache git
 
-# Copy module files and download dependencies
-COPY go.mod go.sum ./
+# Copy source code from cloned repo
+COPY --from=clone /src .
+
+# Download Go dependencies
 RUN go mod download
 
-# Copy entire codebase (including server/ctrl/static)
-COPY . ./
+# ✅ Build (static assets MUST be present!)
+RUN CGO_ENABLED=0 go build -o filestash ./cmd/main.go
 
-# Build static binary (embed will pick up static/www, static/404.html, etc.)
-RUN CGO_ENABLED=0 \
-    go build \
-    -ldflags "-s -w" \
-    -o filestash \
-    ./cmd/main.go
-
-# ─── Builder: Frontend assets ─────────────────────────────────────────────────
-FROM node:18-alpine AS builder_frontend
+# Stage 3: Final runtime container
+FROM alpine:latest
 WORKDIR /app
-RUN apk add --no-cache git
-# Copy client code and build
-COPY client/ ./client/
-WORKDIR /app/client
-RUN npm install --legacy-peer-deps && npm run build
 
-# ─── Final: Minimal runtime ────────────────────────────────────────────────────
-FROM alpine:3.17 AS runtime
-# SSL support
-RUN apk add --no-cache ca-certificates
+# Copy built binary
+COPY --from=builder /app/filestash .
 
-WORKDIR /root/
-# Copy Go binary
-COPY --from=builder_go /app/filestash ./filestash
-# Copy builtin static files (404, loader) and www content
-COPY --from=builder_go /app/server/ctrl/static ./server/ctrl/static
-# Copy public frontend assets
-COPY --from=builder_frontend /app/client/public ./public
+# Copy static + other runtime files
+COPY --from=builder /app/static ./static
+COPY --from=builder /app/config ./config
+COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/data ./data
 
-# Expose default port
 EXPOSE 8334
 
-# Launch
-ENTRYPOINT ["./filestash"]
-CMD ["--config", "./config/config.json"]
+# ✅ Run it!
+CMD ["./filestash"]
