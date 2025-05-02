@@ -1,29 +1,29 @@
+# ---- BUILD STAGE ----
 FROM golang:latest as builder
 
+# Set working directory in the builder container
 WORKDIR /app
 
-# Copy source
+# Copy source code into the container
 COPY . .
 
-# Ensure Go modules are enabled
-ENV GO111MODULE=on
+# Build the Filestash binary with Keycloak support from the cmd directory
+RUN go build -tags "keycloak" -o filestash ./cmd
 
-# Build with Keycloak support enabled via build tag
-RUN go build -tags "keycloak" -o filestash ./cmd/filestash
-
-# Final image
+# ---- RUNTIME STAGE ----
 FROM debian:bookworm-slim
 
-# Install dependencies
+# Install only what's needed to run the binary
 RUN apt-get update && apt-get install -y ca-certificates && rm -rf /var/lib/apt/lists/*
 
+# Set working directory in runtime container
 WORKDIR /app
 
-# Copy the built binary
+# Copy the built binary from the builder stage
 COPY --from=builder /app/filestash /app/filestash
 
-# Expose the web server port
+# Expose default Filestash port
 EXPOSE 8334
 
-# Run Filestash
+# Run the binary
 CMD ["/app/filestash"]
