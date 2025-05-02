@@ -1,19 +1,19 @@
 # ─────────────────────────────────────────────────────────
 # 1. Build frontend
-FROM node:18 AS frontend
+FROM node:latest AS frontend
 WORKDIR /app
 COPY . .
-RUN npm install && npm run build
+RUN npm install --legacy-peer-deps && npm run build
 
 # ─────────────────────────────────────────────────────────
 # 2. Build backend
-FROM golang:1.23 AS backend
+FROM golang:latest AS backend
 WORKDIR /app
 COPY --from=frontend /app /app
 RUN make go-prod
 
 # ─────────────────────────────────────────────────────────
-# 3. Final runtime image
+# 3. Runtime
 FROM debian:bookworm-slim
 RUN apt-get update && apt-get install -y ca-certificates && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
