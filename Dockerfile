@@ -1,29 +1,22 @@
-# ---- BUILD STAGE ----
-FROM golang:latest as builder
-
-# Set working directory in the builder container
+# ─────────────────────────────────────────────────────────
+# 1. Build frontend
+FROM node:18 AS frontend
 WORKDIR /app
-
-# Copy source code into the container
 COPY . .
+RUN npm install && npm run build
 
-# Build the Filestash binary with Keycloak support from the cmd directory
-RUN go build -tags "keycloak" -o filestash ./cmd
-
-# ---- RUNTIME STAGE ----
-FROM debian:bookworm-slim
-
-# Install only what's needed to run the binary
-RUN apt-get update && apt-get install -y ca-certificates && rm -rf /var/lib/apt/lists/*
-
-# Set working directory in runtime container
+# ─────────────────────────────────────────────────────────
+# 2. Build backend
+FROM golang:1.23 AS backend
 WORKDIR /app
+COPY --from=frontend /app /app
+RUN make go-prod
 
-# Copy the built binary from the builder stage
-COPY --from=builder /app/filestash /app/filestash
-
-# Expose default Filestash port
+# ─────────────────────────────────────────────────────────
+# 3. Final runtime image
+FROM debian:bookworm-slim
+RUN apt-get update && apt-get install -y ca-certificates && rm -rf /var/lib/apt/lists/*
+WORKDIR /app
+COPY --from=backend /app/filestash /app/filestash
 EXPOSE 8334
-
-# Run the binary
 CMD ["/app/filestash"]
